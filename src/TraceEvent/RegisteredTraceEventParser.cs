@@ -258,18 +258,46 @@ namespace Microsoft.Diagnostics.Tracing.Parsers
                         }
                         opcodeNames[opcodeName] = eventInfo->EventDescriptor.Opcode;
 
-                        // And event name 
-                        string eventName = taskName;
-                        if (!taskName.EndsWith(opcodeName, StringComparison.OrdinalIgnoreCase))
+                        // Event Log-era events (win:EventlogClassic) keep a 32-bit message id,
+                        // Severity|C|R|Facility|Code, which the manifest compiler packs into the descriptor:
+                        // the code is the Id, the low byte of the facility the Version and the top byte the
+                        // Opcode. That opcode is not a real one, so name these events by their severity.
+                        bool isEventLogClassic = (eventInfo->EventDescriptor.Keyword & EventLogClassicKeyword) != 0;
+
+                        // And event name
+                        string eventName;
+                        if (eventInfo->TaskNameOffset != 0)
                         {
-                            eventName += Capitalize(opcodeName);
+                            eventName = taskName;
+                            if (!isEventLogClassic && !taskName.EndsWith(opcodeName, StringComparison.OrdinalIgnoreCase))
+                            {
+                                eventName += Capitalize(opcodeName);
+                            }
+
+                            // Ensure uniqueness of the event name
+                            int eventNumForName;
+                            if (eventNames.TryGetValue(eventName, out eventNumForName) && eventNumForName != eventInfo->EventDescriptor.Id)
+                            {
+                                eventName = eventName + eventInfo->EventDescriptor.Id.ToString();
+                            }
+                        }
+                        else
+                        {
+                            // Without a task name, the event id says more than task_<n> - and is unique.
+                            eventName = "Event_" + eventInfo->EventDescriptor.Id.ToString();
+                            if (!isEventLogClassic && eventInfo->EventDescriptor.Opcode != 0)
+                            {
+                                eventName += "_" + (eventInfo->OpcodeNameOffset != 0 ? opcodeName : "Opcode" + eventInfo->EventDescriptor.Opcode.ToString());
+                            }
                         }
 
-                        // Ensure uniqueness of the event name
-                        int eventNumForName;
-                        if (eventNames.TryGetValue(eventName, out eventNumForName) && eventNumForName != eventInfo->EventDescriptor.Id)
+                        if (isEventLogClassic)
                         {
-                            eventName = eventName + eventInfo->EventDescriptor.Id.ToString();
+                            int severity = eventInfo->EventDescriptor.Opcode >> 6;
+                            if (severity != 0)
+                            {
+                                eventName += "_" + EventLogSeverityNames[severity];
+                            }
                         }
 
                         eventNames[eventName] = eventInfo->EventDescriptor.Id;
@@ -688,6 +716,16 @@ namespace Microsoft.Diagnostics.Tracing.Parsers
             }
         }
 
+
+        /// <summary>
+        /// win:EventlogClassic, which the manifest compiler sets on events that keep an Event Log message id.
+        /// </summary>
+        private const ulong EventLogClassicKeyword = 0x0080000000000000;
+
+        /// <summary>
+        /// The severities of an Event Log message id (its top two bits).
+        /// </summary>
+        private static readonly string[] EventLogSeverityNames = { "Success", "Informational", "Warning", "Error" };
 
         private static string MakeLegalIdentifier(string name)
         {
