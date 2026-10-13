@@ -894,11 +894,19 @@ namespace Microsoft.Diagnostics.Tracing.Parsers
         /// </summary>
         private static IntPtr OpenEventLogPublisher(Guid providerGuid)
         {
-            // EvtOpenPublisherMetadata takes the publisher name, not its GUID.
+            // EvtOpenPublisherMetadata takes the publisher name, not its GUID.  The publishers are only in the native
+            // registry (64 bit on a 64 bit machine); a 32 bit process would otherwise be redirected away from them.
+            var registryView = Microsoft.Win32.RegistryView.Registry64;
+            if (sizeof(IntPtr) == 4 && Environment.GetEnvironmentVariable("PROCESSOR_ARCHITEW6432") == null)
+            {
+                registryView = Microsoft.Win32.RegistryView.Default;
+            }
+
             string publisherName;
             try
             {
-                using (var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\WINEVT\Publishers\{" + providerGuid.ToString() + "}"))
+                using (var hklm = Microsoft.Win32.RegistryKey.OpenBaseKey(Microsoft.Win32.RegistryHive.LocalMachine, registryView))
+                using (var key = hklm.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\WINEVT\Publishers\{" + providerGuid.ToString() + "}"))
                 {
                     publisherName = key?.GetValue(null) as string;
                 }
