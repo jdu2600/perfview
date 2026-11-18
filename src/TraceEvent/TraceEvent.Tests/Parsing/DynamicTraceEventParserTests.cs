@@ -443,6 +443,49 @@ namespace TraceEventTests
         }
 
         [Fact]
+        public void ParseProviderEvents_StopsAtStruct()
+        {
+            string manifest =
+                "<instrumentationManifest xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">" +
+                "  <instrumentation>" +
+                "    <events>" +
+                "      <provider name=\"Contoso.Provider\" guid=\"" + Guid.NewGuid() + "\">" +
+                "        <events>" +
+                "          <event value=\"1\" symbol=\"MyEvent\" template=\"MyEventArgs\" />" +
+                "        </events>" +
+                "        <templates>" +
+                "          <template tid=\"MyEventArgs\">" +
+                "            <data name=\"Before\" inType=\"win:UInt32\" />" +
+                "            <data name=\"Count\" inType=\"win:UInt32\" />" +
+                "            <struct name=\"Values\" count=\"Count\">" +
+                "              <data name=\"Member1\" inType=\"win:UInt32\" />" +
+                "              <data name=\"Member2\" inType=\"win:UInt64\" />" +
+                "            </struct>" +
+                "            <data name=\"After\" inType=\"win:UInt32\" />" +
+                "          </template>" +
+                "        </templates>" +
+                "      </provider>" +
+                "    </events>" +
+                "  </instrumentation>" +
+                "</instrumentationManifest>";
+
+            var providerManifest = new ProviderManifest(new MemoryStream(Encoding.UTF8.GetBytes(manifest)));
+            DynamicTraceEventData template = null;
+            providerManifest.ParseProviderEvents(t =>
+            {
+                if ((int)t.ID == 1)
+                {
+                    template = t;
+                }
+                return EventFilterResponse.AcceptEvent;
+            }, false);
+
+            // Struct fields are not decoded, so the fields stop at the struct rather than reading its members as top-level fields.
+            Assert.NotNull(template);
+            Assert.Equal(new[] { "Before", "Count" }, template.payloadNames);
+        }
+
+        [Fact]
         public void ParseProviderEvents_HonorsManifestOutTypeFormatting()
         {
             string manifest =

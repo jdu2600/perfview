@@ -2865,6 +2865,13 @@ namespace Microsoft.Diagnostics.Tracing.Parsers
             ushort offset = 0;
             while (reader.Read())
             {
+                // Structs are not supported.  Reading on would decode the struct's members as top-level fields.
+                if (reader.NodeType == XmlNodeType.Element && reader.Name == "struct")
+                {
+                    Trace.WriteLine("Found an unsupported struct " + reader.GetAttribute("name") + " skipping all fields after that.");
+                    break;
+                }
+
                 if (reader.NodeType == XmlNodeType.Element && reader.Name == "data")
                 {
                     string inType = reader.GetAttribute("inType");
