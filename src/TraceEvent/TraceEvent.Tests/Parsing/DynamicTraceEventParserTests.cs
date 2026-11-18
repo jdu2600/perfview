@@ -443,7 +443,7 @@ namespace TraceEventTests
         }
 
         [Fact]
-        public void ParseProviderEvents_StopsAtStruct()
+        public void ParseProviderEvents_UnsupportedStruct_DoesNotFlattenMembers()
         {
             string manifest =
                 "<instrumentationManifest xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">" +
@@ -480,7 +480,8 @@ namespace TraceEventTests
                 return EventFilterResponse.AcceptEvent;
             }, false);
 
-            // Struct fields are not decoded, so the fields stop at the struct rather than reading its members as top-level fields.
+            // The reader does not decode <struct> yet.  Until it does, it stops at the struct like any unsupported type,
+            // rather than reading the struct's members as top-level fields.  Update this test when struct decoding is added.
             Assert.NotNull(template);
             Assert.Equal(new[] { "Before", "Count" }, template.payloadNames);
         }
