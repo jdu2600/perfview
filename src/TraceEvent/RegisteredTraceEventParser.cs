@@ -406,7 +406,6 @@ namespace Microsoft.Diagnostics.Tracing.Parsers
                                         int j = run.Key;
                                         EVENT_PROPERTY_INFO* propertyInfo = &propertyInfos[j];
                                         var propertyName = new string((char*)(&eventInfoBuff[propertyInfo->NameOffset]));
-                                        propertyNames[j] = propertyName;
                                         string mapAttrib = null;
                                         bool isStruct = (propertyInfo->Flags & PROPERTY_FLAGS.Struct) != 0;
 
@@ -478,17 +477,29 @@ namespace Microsoft.Diagnostics.Tracing.Parsers
 
                                         // Remove anything that does not look like an ID (.e.g space)
                                         propertyName = Regex.Replace(propertyName, "[^A-Za-z0-9_]", "");
+                                        // Stored after cleaning so that count and length attributes match the data names.
+                                        propertyNames[j] = propertyName;
                                         TdhInputType propertyType = propertyInfo->InType;
                                         string countAttrib = null;
                                         string lengthAttrib = null;
 
+                                        // Count and length are independent, e.g. a fixed count of fixed-length binary blobs.
                                         if ((propertyInfo->Flags & PROPERTY_FLAGS.ParamCount) != 0)
                                         {
                                             countAttrib = propertyNames[propertyInfo->CountOrCountIndex];
                                         }
-                                        else if ((propertyInfo->Flags & PROPERTY_FLAGS.ParamLength) != 0)
+                                        else if ((propertyInfo->Flags & PROPERTY_FLAGS.ParamFixedCount) != 0 || propertyInfo->CountOrCountIndex > 1)
+                                        {
+                                            countAttrib = propertyInfo->CountOrCountIndex.ToString();
+                                        }
+
+                                        if ((propertyInfo->Flags & PROPERTY_FLAGS.ParamLength) != 0)
                                         {
                                             lengthAttrib = propertyNames[propertyInfo->LengthOrLengthIndex];
+                                        }
+                                        else if ((propertyInfo->Flags & PROPERTY_FLAGS.ParamFixedLength) != 0)
+                                        {
+                                            lengthAttrib = propertyInfo->LengthOrLengthIndex.ToString();
                                         }
 
                                         if (isStruct)

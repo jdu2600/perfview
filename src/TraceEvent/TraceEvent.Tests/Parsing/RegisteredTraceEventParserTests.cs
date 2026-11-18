@@ -1078,7 +1078,6 @@ namespace TraceEventTests
                                 int j = run.Key;
                                 RegisteredTraceEventParser.EVENT_PROPERTY_INFO* propertyInfo = &propertyInfos[j];
                                 var propertyName = new string((char*)(&eventInfoBuff[propertyInfo->NameOffset]));
-                                propertyNames[j] = propertyName;
                                 var enumAttrib = "";
                                 bool isStruct = (propertyInfo->Flags & RegisteredTraceEventParser.PROPERTY_FLAGS.Struct) != 0;
 
@@ -1141,16 +1140,26 @@ namespace TraceEventTests
                                 }
 
                                 propertyName = Regex.Replace(propertyName, "[^A-Za-z0-9_]", "");
+                                propertyNames[j] = propertyName;
                                 RegisteredTraceEventParser.TdhInputType propertyType = propertyInfo->InType;
                                 string countOrLengthAttrib = "";
 
                                 if ((propertyInfo->Flags & RegisteredTraceEventParser.PROPERTY_FLAGS.ParamCount) != 0)
                                 {
-                                    countOrLengthAttrib = " count=\"" + propertyNames[propertyInfo->CountOrCountIndex] + "\"";
+                                    countOrLengthAttrib += " count=\"" + propertyNames[propertyInfo->CountOrCountIndex] + "\"";
                                 }
-                                else if ((propertyInfo->Flags & RegisteredTraceEventParser.PROPERTY_FLAGS.ParamLength) != 0)
+                                else if ((propertyInfo->Flags & RegisteredTraceEventParser.PROPERTY_FLAGS.ParamFixedCount) != 0 || propertyInfo->CountOrCountIndex > 1)
                                 {
-                                    countOrLengthAttrib = " length=\"" + propertyNames[propertyInfo->LengthOrLengthIndex] + "\"";
+                                    countOrLengthAttrib += " count=\"" + propertyInfo->CountOrCountIndex + "\"";
+                                }
+
+                                if ((propertyInfo->Flags & RegisteredTraceEventParser.PROPERTY_FLAGS.ParamLength) != 0)
+                                {
+                                    countOrLengthAttrib += " length=\"" + propertyNames[propertyInfo->LengthOrLengthIndex] + "\"";
+                                }
+                                else if ((propertyInfo->Flags & RegisteredTraceEventParser.PROPERTY_FLAGS.ParamFixedLength) != 0)
+                                {
+                                    countOrLengthAttrib += " length=\"" + propertyInfo->LengthOrLengthIndex + "\"";
                                 }
 
                                 if (isStruct)
