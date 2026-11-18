@@ -1053,15 +1053,36 @@ namespace TraceEventTests
                         if (eventInfo->TopLevelPropertyCount != 0)
                         {
                             var templateWriter = new StringWriter();
-                            string[] propertyNames = new string[eventInfo->TopLevelPropertyCount];
-                            for (int j = 0; j < eventInfo->TopLevelPropertyCount; j++)
+                            string[] propertyNames = new string[eventInfo->PropertyCount];
+                            var runs = new Stack<KeyValuePair<int, int>>();
+                            runs.Push(new KeyValuePair<int, int>(0, eventInfo->TopLevelPropertyCount));
+                            int propertiesWritten = 0;
+                            while (runs.Count > 0)
                             {
+                                var run = runs.Pop();
+                                if (run.Key >= run.Value)
+                                {
+                                    if (runs.Count > 0)
+                                    {
+                                        templateWriter.WriteLine("      </struct>");
+                                    }
+                                    continue;
+                                }
+
+                                if (++propertiesWritten > eventInfo->PropertyCount)
+                                {
+                                    break;
+                                }
+
+                                runs.Push(new KeyValuePair<int, int>(run.Key + 1, run.Value));
+                                int j = run.Key;
                                 RegisteredTraceEventParser.EVENT_PROPERTY_INFO* propertyInfo = &propertyInfos[j];
                                 var propertyName = new string((char*)(&eventInfoBuff[propertyInfo->NameOffset]));
                                 propertyNames[j] = propertyName;
                                 var enumAttrib = "";
+                                bool isStruct = (propertyInfo->Flags & RegisteredTraceEventParser.PROPERTY_FLAGS.Struct) != 0;
 
-                                if (propertyInfo->MapNameOffset != 0)
+                                if (!isStruct && propertyInfo->MapNameOffset != 0)
                                 {
                                     string mapName = new string((char*)(&eventInfoBuff[propertyInfo->MapNameOffset]));
 
@@ -1130,6 +1151,22 @@ namespace TraceEventTests
                                 else if ((propertyInfo->Flags & RegisteredTraceEventParser.PROPERTY_FLAGS.ParamLength) != 0)
                                 {
                                     countOrLengthAttrib = " length=\"" + propertyNames[propertyInfo->LengthOrLengthIndex] + "\"";
+                                }
+
+                                if (isStruct)
+                                {
+                                    int memberStart = propertyInfo->StructStartIndex;
+                                    int memberCount = propertyInfo->NumOfStructMembers;
+                                    if (j < memberStart && memberCount <= eventInfo->PropertyCount - memberStart)
+                                    {
+                                        templateWriter.WriteLine("      <struct name=\"{0}\"{1}>", propertyName, countOrLengthAttrib);
+                                        runs.Push(new KeyValuePair<int, int>(memberStart, memberStart + memberCount));
+                                    }
+                                    else
+                                    {
+                                        templateWriter.WriteLine("      <struct name=\"{0}\"{1}/>", propertyName, countOrLengthAttrib);
+                                    }
+                                    continue;
                                 }
 
                                 templateWriter.WriteLine("      <data name=\"{0}\" inType=\"win:{1}\"{2}{3}/>", propertyName, propertyType.ToString(), enumAttrib, countOrLengthAttrib);
