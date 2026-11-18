@@ -230,6 +230,40 @@ namespace TraceEventTests
         }
 
         /// <summary>
+        /// Test that a struct property is written as a struct element holding its members. DotNETRuntime's
+        /// GCBulkRootEdge (event 16) ends in an array of structs whose members include maps.
+        /// </summary>
+        [WindowsFact]
+        public void GetManifestForRegisteredProvider_WritesStructMembers()
+        {
+            string manifest = RegisteredTraceEventParser.GetManifestForRegisteredProvider("Microsoft-Windows-DotNETRuntime");
+
+            var xmlDoc = new XmlDocument();
+            xmlDoc.LoadXml(manifest);
+            var nsmgr = new XmlNamespaceManager(xmlDoc.NameTable);
+            nsmgr.AddNamespace("e", "http://schemas.microsoft.com/win/2004/08/events");
+
+            var eventNode = (XmlElement)xmlDoc.SelectSingleNode("//e:event[@value='16'][@version='0']", nsmgr);
+            Assert.NotNull(eventNode);
+            var template = xmlDoc.SelectSingleNode($"//e:template[@tid='{eventNode.GetAttribute("template")}']", nsmgr);
+            Assert.NotNull(template);
+
+            string fields = template.InnerXml.Replace(" xmlns=\"http://schemas.microsoft.com/win/2004/08/events\"", "");
+            _output.WriteLine(fields);
+            Assert.Equal(
+                "<data name=\"Index\" inType=\"win:UInt32\" />" +
+                "<data name=\"Count\" inType=\"win:UInt32\" />" +
+                "<data name=\"ClrInstanceID\" inType=\"win:UInt16\" />" +
+                "<struct name=\"Values\" count=\"Count\">" +
+                "<data name=\"RootedNodeAddress\" inType=\"win:Pointer\" />" +
+                "<data name=\"GCRootKind\" inType=\"win:UInt8\" map=\"GCRootKindMap\" />" +
+                "<data name=\"GCRootFlag\" inType=\"win:UInt32\" map=\"GCRootFlagsMap\" />" +
+                "<data name=\"GCRootID\" inType=\"win:Pointer\" />" +
+                "</struct>",
+                fields);
+        }
+
+        /// <summary>
         /// Test that events sharing an Id and Version keep their own fields. Kerberos event 13 is two Event Log
         /// message ids, 0x0000000D and 0x8000000D, that differ only in the severity bits.
         /// </summary>
