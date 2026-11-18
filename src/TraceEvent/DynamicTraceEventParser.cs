@@ -2865,10 +2865,13 @@ namespace Microsoft.Diagnostics.Tracing.Parsers
             ushort offset = 0;
             while (reader.Read())
             {
-                // Structs are not supported.  Reading on would decode the struct's members as top-level fields.
-                if (reader.NodeType == XmlNodeType.Element && reader.Name == "struct")
+                // A single struct is its members laid out in place, so they are read below as ordinary fields.
+                // Arrays of structs are not supported; reading their members once would put every later field at the
+                // wrong offset.
+                if (reader.NodeType == XmlNodeType.Element && reader.Name == "struct" &&
+                    (reader.GetAttribute("count") != null || reader.GetAttribute("length") != null))
                 {
-                    Trace.WriteLine("Found an unsupported struct " + reader.GetAttribute("name") + " skipping all fields after that.");
+                    Trace.WriteLine("Found an unsupported struct array " + reader.GetAttribute("name") + " skipping all fields after that.");
                     break;
                 }
 

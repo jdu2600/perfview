@@ -443,47 +443,35 @@ namespace TraceEventTests
         }
 
         [Fact]
-        public void ParseProviderEvents_UnsupportedStruct_DoesNotFlattenMembers()
+        public void ParseProviderEvents_StructArray_DoesNotFlattenMembers()
         {
-            string manifest =
-                "<instrumentationManifest xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">" +
-                "  <instrumentation>" +
-                "    <events>" +
-                "      <provider name=\"Contoso.Provider\" guid=\"" + Guid.NewGuid() + "\">" +
-                "        <events>" +
-                "          <event value=\"1\" symbol=\"MyEvent\" template=\"MyEventArgs\" />" +
-                "        </events>" +
-                "        <templates>" +
-                "          <template tid=\"MyEventArgs\">" +
-                "            <data name=\"Before\" inType=\"win:UInt32\" />" +
-                "            <data name=\"Count\" inType=\"win:UInt32\" />" +
-                "            <struct name=\"Values\" count=\"Count\">" +
-                "              <data name=\"Member1\" inType=\"win:UInt32\" />" +
-                "              <data name=\"Member2\" inType=\"win:UInt64\" />" +
-                "            </struct>" +
-                "            <data name=\"After\" inType=\"win:UInt32\" />" +
-                "          </template>" +
-                "        </templates>" +
-                "      </provider>" +
-                "    </events>" +
-                "  </instrumentation>" +
-                "</instrumentationManifest>";
+            DynamicTraceEventData template = ParseSingleEventTemplate(
+                "<data name=\"Before\" inType=\"win:UInt32\" />" +
+                "<data name=\"Count\" inType=\"win:UInt32\" />" +
+                "<struct name=\"Values\" count=\"Count\">" +
+                "  <data name=\"Member1\" inType=\"win:UInt32\" />" +
+                "  <data name=\"Member2\" inType=\"win:UInt64\" />" +
+                "</struct>" +
+                "<data name=\"After\" inType=\"win:UInt32\" />");
 
-            var providerManifest = new ProviderManifest(new MemoryStream(Encoding.UTF8.GetBytes(manifest)));
-            DynamicTraceEventData template = null;
-            providerManifest.ParseProviderEvents(t =>
-            {
-                if ((int)t.ID == 1)
-                {
-                    template = t;
-                }
-                return EventFilterResponse.AcceptEvent;
-            }, false);
-
-            // The reader does not decode <struct> yet.  Until it does, it stops at the struct like any unsupported type,
-            // rather than reading the struct's members as top-level fields.  Update this test when struct decoding is added.
-            Assert.NotNull(template);
+            // The reader does not decode arrays of structs yet.  Until it does, it stops at the array like any unsupported
+            // type, rather than reading the members once as top-level fields.  Update this test when they are supported.
             Assert.Equal(new[] { "Before", "Count" }, template.payloadNames);
+        }
+
+        [Fact]
+        public void ParseProviderEvents_SingleStruct_ReadsMembersInPlace()
+        {
+            DynamicTraceEventData template = ParseSingleEventTemplate(
+                "<data name=\"Before\" inType=\"win:UInt32\" />" +
+                "<struct name=\"Value\">" +
+                "  <data name=\"Member1\" inType=\"win:UInt32\" />" +
+                "  <data name=\"Member2\" inType=\"win:UInt64\" />" +
+                "</struct>" +
+                "<data name=\"After\" inType=\"win:UInt32\" />");
+
+            Assert.Equal(new[] { "Before", "Member1", "Member2", "After" }, template.payloadNames);
+            Assert.Equal(new[] { 0, 4, 8, 16 }, Array.ConvertAll(template.payloadFetches, fetch => (int)fetch.Offset));
         }
 
         [Fact]
@@ -610,6 +598,42 @@ namespace TraceEventTests
             {
                 throw new InvalidOperationException("Payload lookup failed.");
             }
+        }
+
+        /// <summary>
+        /// Parses a manifest with one event whose template holds 'templateBody', and returns that event's template.
+        /// </summary>
+        private static DynamicTraceEventData ParseSingleEventTemplate(string templateBody)
+        {
+            string manifest =
+                "<instrumentationManifest xmlns=\"http://schemas.microsoft.com/win/2004/08/events\">" +
+                "  <instrumentation>" +
+                "    <events>" +
+                "      <provider name=\"Contoso.Provider\" guid=\"" + Guid.NewGuid() + "\">" +
+                "        <events>" +
+                "          <event value=\"1\" symbol=\"MyEvent\" template=\"MyEventArgs\" />" +
+                "        </events>" +
+                "        <templates>" +
+                "          <template tid=\"MyEventArgs\">" + templateBody + "</template>" +
+                "        </templates>" +
+                "      </provider>" +
+                "    </events>" +
+                "  </instrumentation>" +
+                "</instrumentationManifest>";
+
+            var providerManifest = new ProviderManifest(new MemoryStream(Encoding.UTF8.GetBytes(manifest)));
+            DynamicTraceEventData template = null;
+            providerManifest.ParseProviderEvents(t =>
+            {
+                if ((int)t.ID == 1)
+                {
+                    template = t;
+                }
+                return EventFilterResponse.AcceptEvent;
+            }, false);
+
+            Assert.NotNull(template);
+            return template;
         }
 
         private static unsafe void WithEvent(byte[] payload, DynamicTraceEventData.PayloadFetch[] fetches, Action<DynamicTraceEventData> action)
