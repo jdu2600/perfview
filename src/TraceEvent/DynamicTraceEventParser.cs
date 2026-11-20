@@ -2862,9 +2862,67 @@ namespace Microsoft.Diagnostics.Tracing.Parsers
 
             ret.payloadNames = new List<string>();
             ret.payloadFetches = new List<DynamicTraceEventData.PayloadFetch>();
+            ComputeFieldInfo(reader, maps, ret.payloadNames, ret.payloadFetches);
+            return ret;
+        }
+
+        /// <summary>
+        /// Adds the fields of the template or struct element at the root of 'reader' to 'payloadNames' and 'payloadFetches'.
+        /// Stops at the first field it cannot decode, since every later field would be at an unknown offset, and returns
+        /// false if it stopped there.
+        /// </summary>
+        private static bool ComputeFieldInfo(XmlReader reader, Dictionary<string, IDictionary<long, string>> maps,
+            List<string> payloadNames, List<DynamicTraceEventData.PayloadFetch> payloadFetches)
+        {
+            reader.Read();      // The template or struct element itself.
             ushort offset = 0;
             while (reader.Read())
             {
+                if (reader.NodeType == XmlNodeType.Element && reader.Name == "struct")
+                {
+                    // A struct is one field holding its members, as TdhEventParser decodes it.  A count of 1 makes it an
+                    // array of one struct, as TDH's ParamFixedCount does.  Larger arrays of structs are not supported.
+                    string structName = reader.GetAttribute("name");
+                    string count = reader.GetAttribute("count");
+                    string length = reader.GetAttribute("length");
+                    if ((count != null && count != "1") || (length != null && length != "1"))
+                    {
+                        Trace.WriteLine("Found an unsupported struct array " + structName + " skipping all fields after that.");
+                        return false;
+                    }
+
+                    var memberNames = new List<string>();
+                    var memberFetches = new List<DynamicTraceEventData.PayloadFetch>();
+                    using (var members = reader.ReadSubtree())
+                    {
+                        if (!ComputeFieldInfo(members, maps, memberNames, memberFetches))
+                        {
+                            return false;
+                        }
+                    }
+
+                    if (memberFetches.Count == 0)
+                    {
+                        Trace.WriteLine("Found a struct " + structName + " with no members, skipping all fields after that.");
+                        return false;
+                    }
+
+                    var classInfo = new DynamicTraceEventData.PayloadFetchClassInfo() { FieldNames = memberNames.ToArray(), FieldFetches = memberFetches.ToArray() };
+                    var structFetch = DynamicTraceEventData.PayloadFetch.StructPayloadFetch(offset, classInfo);
+                    if (count != null)
+                    {
+                        structFetch = DynamicTraceEventData.PayloadFetch.FixedCountArrayPayloadFetch(offset, structFetch, 1, projectCharArrayAsString: false);
+                    }
+
+                    payloadNames.Add(structName);
+                    payloadFetches.Add(structFetch);
+                    if (offset != ushort.MaxValue)
+                    {
+                        offset = structFetch.Size < DynamicTraceEventData.SPECIAL_SIZES ? (ushort)(offset + structFetch.Size) : ushort.MaxValue;
+                    }
+                    continue;
+                }
+
                 if (reader.NodeType == XmlNodeType.Element && reader.Name == "data")
                 {
                     string inType = reader.GetAttribute("inType");
@@ -2872,7 +2930,7 @@ namespace Microsoft.Diagnostics.Tracing.Parsers
                     if (type == null)
                     {
                         Trace.WriteLine("Found an unsupported type " + inType + " skipping all fields after that.");
-                        break;
+                        return false;
                     }
                     ushort size = DynamicTraceEventData.SizeOfType(type);
                     // Strings are weird in that they are encoded multiple ways.  
@@ -2896,11 +2954,11 @@ namespace Microsoft.Diagnostics.Tracing.Parsers
                     if (inType == "win:Binary")
                     {
                         // Check to ensure that the length field is the preceding field. 
-                        int prevFieldIdx = ret.payloadNames.Count - 1;
+                        int prevFieldIdx = payloadNames.Count - 1;
                         string lengthStr = reader.GetAttribute("length");
                         if (lengthStr != null && 0 <= prevFieldIdx &&
-                            lengthStr == ret.payloadNames[prevFieldIdx] &&
-                                (ret.payloadFetches[prevFieldIdx].Type == typeof(int) || ret.payloadFetches[prevFieldIdx].Type == typeof(uint)))
+                            lengthStr == payloadNames[prevFieldIdx] &&
+                                (payloadFetches[prevFieldIdx].Type == typeof(int) || payloadFetches[prevFieldIdx].Type == typeof(uint)))
                         {
                             // Remove the previous field, since it was just there to encode the length of the blob.   
                             if (offset != ushort.MaxValue)
@@ -2908,8 +2966,8 @@ namespace Microsoft.Diagnostics.Tracing.Parsers
                                 offset -= 4;
                             }
 
-                            ret.payloadNames.RemoveAt(prevFieldIdx);
-                            ret.payloadFetches.RemoveAt(prevFieldIdx);
+                            payloadNames.RemoveAt(prevFieldIdx);
+                            payloadFetches.RemoveAt(prevFieldIdx);
 
                             // Now the length is a prefix to the bytes. 
                             ushort fetchSize = DynamicTraceEventData.COUNTED_SIZE + DynamicTraceEventData.BIT_32 + DynamicTraceEventData.CONSUMES_FIELD + DynamicTraceEventData.ELEM_COUNT;
@@ -2919,11 +2977,11 @@ namespace Microsoft.Diagnostics.Tracing.Parsers
                         else
                         {
                             Trace.WriteLine("Only support win:Binary with preceding length fields");
-                            break;
+                            return false;
                         }
                     }
-                    ret.payloadNames.Add(fieldName);
-                    ret.payloadFetches.Add(fieldFetch);
+                    payloadNames.Add(fieldName);
+                    payloadFetches.Add(fieldFetch);
                     if (offset != ushort.MaxValue)
                     {
                         Debug.Assert(size != 0);
@@ -2938,7 +2996,7 @@ namespace Microsoft.Diagnostics.Tracing.Parsers
                     }
                 }
             }
-            return ret;
+            return true;
         }
 
         /// <summary>
