@@ -475,6 +475,34 @@ namespace TraceEventTests
         }
 
         [Fact]
+        public void ParseProviderEvents_StructWithCountOfOne_ReadsMembersInPlace()
+        {
+            DynamicTraceEventData template = ParseSingleEventTemplate(
+                "<data name=\"Before\" inType=\"win:UInt32\" />" +
+                "<struct name=\"Value\" count=\"1\">" +
+                "  <data name=\"Member\" inType=\"win:UInt32\" />" +
+                "</struct>" +
+                "<data name=\"After\" inType=\"win:UInt32\" />");
+
+            Assert.Equal(new[] { "Before", "Member", "After" }, template.payloadNames);
+            Assert.Equal(new[] { 0, 4, 8 }, Array.ConvertAll(template.payloadFetches, fetch => (int)fetch.Offset));
+        }
+
+        [Fact]
+        public void ParseProviderEvents_RepeatedStructMemberName_QualifiesLaterOccurrences()
+        {
+            DynamicTraceEventData template = ParseSingleEventTemplate(
+                "<struct name=\"Start\">" +
+                "  <data name=\"X\" inType=\"win:UInt32\" />" +
+                "</struct>" +
+                "<struct name=\"End\">" +
+                "  <data name=\"X\" inType=\"win:UInt32\" />" +
+                "</struct>");
+
+            Assert.Equal(new[] { "X", "End.X" }, template.payloadNames);
+        }
+
+        [Fact]
         public void ParseProviderEvents_HonorsManifestOutTypeFormatting()
         {
             string manifest =

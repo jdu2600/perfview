@@ -2863,16 +2863,39 @@ namespace Microsoft.Diagnostics.Tracing.Parsers
             ret.payloadNames = new List<string>();
             ret.payloadFetches = new List<DynamicTraceEventData.PayloadFetch>();
             ushort offset = 0;
+            // Names of the single structs being read, innermost on top.
+            var structNames = new Stack<string>();
+            // The manifest name of the last field added, which a following win:Binary's length attribute refers to.
+            string prevFieldName = null;
             while (reader.Read())
             {
-                // A single struct is its members laid out in place, so they are read below as ordinary fields.
-                // Arrays of structs are not supported; reading their members once would put every later field at the
-                // wrong offset.
-                if (reader.NodeType == XmlNodeType.Element && reader.Name == "struct" &&
-                    (reader.GetAttribute("count") != null || reader.GetAttribute("length") != null))
+                if (reader.NodeType == XmlNodeType.Element && reader.Name == "struct")
                 {
-                    Trace.WriteLine("Found an unsupported struct array " + reader.GetAttribute("name") + " skipping all fields after that.");
-                    break;
+                    // A single struct (no count or length, or a count or length of 1) is its members laid out in place,
+                    // so they are read below as ordinary fields.  Arrays of structs are not supported; reading their
+                    // members once would put every later field at the wrong offset.
+                    string count = reader.GetAttribute("count");
+                    string length = reader.GetAttribute("length");
+                    if ((count != null && count != "1") || (length != null && length != "1"))
+                    {
+                        Trace.WriteLine("Found an unsupported struct array " + reader.GetAttribute("name") + " skipping all fields after that.");
+                        break;
+                    }
+
+                    if (!reader.IsEmptyElement)
+                    {
+                        structNames.Push(reader.GetAttribute("name"));
+                    }
+                    continue;
+                }
+
+                if (reader.NodeType == XmlNodeType.EndElement && reader.Name == "struct")
+                {
+                    if (structNames.Count > 0)
+                    {
+                        structNames.Pop();
+                    }
+                    continue;
                 }
 
                 if (reader.NodeType == XmlNodeType.Element && reader.Name == "data")
@@ -2909,7 +2932,7 @@ namespace Microsoft.Diagnostics.Tracing.Parsers
                         int prevFieldIdx = ret.payloadNames.Count - 1;
                         string lengthStr = reader.GetAttribute("length");
                         if (lengthStr != null && 0 <= prevFieldIdx &&
-                            lengthStr == ret.payloadNames[prevFieldIdx] &&
+                            lengthStr == prevFieldName &&
                                 (ret.payloadFetches[prevFieldIdx].Type == typeof(int) || ret.payloadFetches[prevFieldIdx].Type == typeof(uint)))
                         {
                             // Remove the previous field, since it was just there to encode the length of the blob.   
@@ -2932,6 +2955,23 @@ namespace Microsoft.Diagnostics.Tracing.Parsers
                             break;
                         }
                     }
+                    prevFieldName = fieldName;
+
+                    // Struct members are read as top-level fields, so a member can repeat an earlier field's name.
+                    // Keep the first one as it is and qualify later ones with their struct names.
+                    if (structNames.Count > 0 && ret.payloadNames.Contains(fieldName))
+                    {
+                        string[] path = structNames.ToArray();      // innermost first
+                        Array.Reverse(path);
+                        string qualifiedName = string.Join(".", path) + "." + fieldName;
+                        string uniqueName = qualifiedName;
+                        for (int suffix = 2; ret.payloadNames.Contains(uniqueName); suffix++)
+                        {
+                            uniqueName = qualifiedName + "_" + suffix;
+                        }
+                        fieldName = uniqueName;
+                    }
+
                     ret.payloadNames.Add(fieldName);
                     ret.payloadFetches.Add(fieldFetch);
                     if (offset != ushort.MaxValue)
