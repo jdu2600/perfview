@@ -1238,6 +1238,11 @@ namespace TraceEventTests
                                     continue;
                                 }
 
+                                if ((propertyInfo->Flags & RegisteredTraceEventParser.PROPERTY_FLAGS.HasCustomSchema) != 0)
+                                {
+                                    templateWriter.WriteLine("      <!-- PropertyHasCustomSchema: schema not included -->");
+                                }
+
                                 templateWriter.WriteLine("      <data name=\"{0}\" inType=\"win:{1}\"{2}{3}/>", propertyName, propertyType.ToString(), enumAttrib, countOrLengthAttrib);
                             }
                             var templateStr = templateWriter.ToString();

@@ -529,6 +529,12 @@ namespace Microsoft.Diagnostics.Tracing.Parsers
                                             continue;
                                         }
 
+                                        if ((propertyInfo->Flags & PROPERTY_FLAGS.HasCustomSchema) != 0)
+                                        {
+                                            // A manifest cannot express the schema, so say that it was left out.
+                                            tw.WriteComment(" PropertyHasCustomSchema: schema not included ");
+                                        }
+
                                         tw.WriteStartElement("data");
                                         tw.WriteAttributeString("name", propertyName);
                                         tw.WriteAttributeString("inType", "win:" + propertyType.ToString());
@@ -1155,6 +1161,11 @@ namespace Microsoft.Diagnostics.Tracing.Parsers
                         {
                             Trace.WriteLine("    Unknown type for  " + propertyName + " " + propertyInfo->InType.ToString() + " fields from here will be missing.");
                             goto Exit;
+                        }
+
+                        if ((propertyInfo->Flags & PROPERTY_FLAGS.HasCustomSchema) != 0)
+                        {
+                            Trace.WriteLine("    Custom schema for " + propertyName + " is not supported; decoding it as " + propertyInfo->InType.ToString() + ".");
                         }
 
                         // Deal with any maps (bit fields or enumerations).  A custom schema property has no map; its
